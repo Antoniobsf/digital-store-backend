@@ -4,7 +4,7 @@ module.exports = {
   // GET /v1/category/search
   async search(req, res, next) {
     try {
-      const { limit = 12, page = 1, use_in_menu } = req.query;
+      const { limit = 12, page = 1, fields, use_in_menu } = req.query;
       const where = {};
 
       if (use_in_menu !== undefined) {
@@ -13,7 +13,17 @@ module.exports = {
 
       const parsedLimit = Number(limit);
       const parsedPage = Number(page);
+      if (Number.isNaN(parsedLimit) || Number.isNaN(parsedPage)) {
+        return res.status(400).json({ error: 'Parâmetros limit e page devem ser numéricos.' });
+      }
+
       const options = { where };
+
+      if (fields) {
+        const allowed = ['id', 'name', 'slug', 'use_in_menu'];
+        const requested = fields.split(',').map((f) => f.trim()).filter((f) => allowed.includes(f));
+        if (requested.length > 0) options.attributes = requested;
+      }
 
       if (parsedLimit !== -1) {
         options.limit = parsedLimit;
@@ -36,12 +46,11 @@ module.exports = {
   // GET /v1/category/:id
   async getById(req, res, next) {
     try {
-      const category = await Category.findByPk(req.params.id);
+      const category = await Category.findByPk(req.params.id, {
+        attributes: ['id', 'name', 'slug', 'use_in_menu'],
+      });
 
-      if (!category) {
-        return res.status(404).json({ error: 'Categoria não encontrada.' });
-      }
-
+      if (!category) return res.status(404).json({ error: 'Categoria não encontrada.' });
       return res.status(200).json(category);
     } catch (error) {
       return next(error);
@@ -52,7 +61,6 @@ module.exports = {
   async create(req, res, next) {
     try {
       const { name, slug, use_in_menu } = req.body;
-
       if (!name || !slug) {
         return res.status(400).json({ error: 'Campos name e slug são obrigatórios.' });
       }
@@ -69,10 +77,7 @@ module.exports = {
     try {
       const { name, slug, use_in_menu } = req.body;
       const category = await Category.findByPk(req.params.id);
-
-      if (!category) {
-        return res.status(404).json({ error: 'Categoria não encontrada.' });
-      }
+      if (!category) return res.status(404).json({ error: 'Categoria não encontrada.' });
 
       await category.update({
         name: name ?? category.name,
@@ -90,10 +95,7 @@ module.exports = {
   async remove(req, res, next) {
     try {
       const category = await Category.findByPk(req.params.id);
-
-      if (!category) {
-        return res.status(404).json({ error: 'Categoria não encontrada.' });
-      }
+      if (!category) return res.status(404).json({ error: 'Categoria não encontrada.' });
 
       await category.destroy();
       return res.status(204).send();

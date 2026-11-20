@@ -4,11 +4,12 @@ const request = require('supertest');
 const app = require('../src/app');
 const { sequelize } = require('../src/models');
 
-describe('Digital Store API - Testes de Integração', () => {
+describe('Digital Store API - Testes de Integração (Escopo Completo)', () => {
   let token;
   let userId;
   let categoryId;
   let productId;
+  let optionId;
 
   beforeAll(async () => {
     await sequelize.sync({ force: true });
@@ -55,28 +56,61 @@ describe('Digital Store API - Testes de Integração', () => {
     categoryId = res.body.id;
   });
 
-  test('POST /v1/product - Deve criar produto vinculado à categoria', async () => {
+  test('GET /v1/category/search?fields=name,slug - Deve retornar apenas os campos solicitados', async () => {
+    const res = await request(app).get('/v1/category/search?fields=name,slug');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.data[0]).toEqual({ name: 'Tênis', slug: 'tenis' });
+  });
+
+  test('POST /v1/product - Deve criar produto com category_ids, images e options', async () => {
     const res = await request(app)
       .post('/v1/product')
       .set('Authorization', `Bearer ${token}`)
       .send({
+        enabled: true,
         name: 'Tênis Nike Revolution',
         slug: 'tenis-nike-revolution',
         stock: 15,
         description: 'Tênis esportivo confortável',
         price: 299.9,
         price_with_discount: 219.9,
-        category_id: categoryId,
+        category_ids: [categoryId],
+        images: [{ type: 'image/png', content: 'https://store.com/media/nike-1.png' }],
+        options: [
+          { title: 'Tamanho', shape: 'square', radius: '4px', type: 'text', value: ['39', '40', '41'] },
+        ],
       });
+
     expect(res.statusCode).toBe(201);
+    expect(res.body.category_ids).toEqual([categoryId]);
+    expect(res.body.images).toHaveLength(1);
+    expect(res.body.options).toHaveLength(1);
     productId = res.body.id;
+    optionId = res.body.options[0].id;
   });
 
-  test('GET /v1/product/search - Deve listar produtos com categoria associada', async () => {
-    const res = await request(app).get('/v1/product/search?match=Nike');
+  test('GET /v1/product/search - Deve filtrar por match, price-range e category_ids', async () => {
+    const res = await request(app).get(
+      `/v1/product/search?match=Nike&price-range=200-350&category_ids=${categoryId}`
+    );
     expect(res.statusCode).toBe(200);
     expect(res.body.total).toBe(1);
-    expect(res.body.data[0].category.name).toBe('Tênis');
+    expect(res.body.data[0].images[0].content).toBe('https://store.com/media/nike-1.png');
+  });
+
+  test('PUT /v1/product/:id - Deve atualizar produto e remover opção com deleted: true', async () => {
+    const res = await request(app)
+      .put(`/v1/product/${productId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: 'Tênis Nike Revolution Atualizado',
+        options: [{ id: optionId, deleted: true }],
+      });
+    expect(res.statusCode).toBe(204);
+
+    const check = await request(app).get(`/v1/product/${productId}`);
+    expect(check.body.name).toBe('Tênis Nike Revolution Atualizado');
+    expect(check.body.options).toHaveLength(0);
   });
 
   test('DELETE /v1/product/:id - Deve remover o produto criado', async () => {
